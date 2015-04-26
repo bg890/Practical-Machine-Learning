@@ -1,0 +1,142 @@
+# Machine Learning: Course Project
+
+#### Executive Summary
+With the advent of personal tracking devices, such as Jawbone, Fitbit, and Nike FuelBand, it is possible to collect a huge amount of data on personal activity performance. The following project will analyze data collected from the accelerometers on the belt, forearm, arm, and dumbell of six participants from a weight lifting study. The participants were asked to perform barbell lifts correctly and incorrectly in five different ways. For detailed information about the study, you should see the “Weight Lifting Exercises Dataset” section at the following website:
+http://groupware.les.inf.puc-rio.br/har
+
+The goal for this project is to predict the manner in which the participants did the exercise. The project will predict the “classe” variable found in the pmltrain set. The prediction model created during the execerise will be used to predict twenty different test cases in the pmltest dataset.
+
+#### Data Processing and Analysis
+The pml-training and pml-testing datasets URL's follows:
+Pml-Training dataset:
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv
+Pml-Testing dataset:
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv
+
+First, the required libraries will be loaded into R. 
+```{r}
+library("caret")
+library("rpart")
+library("foreach")
+library("randomForest")
+```
+
+Next, the train and test datasets will be loaded into R.  In addition, the blank values in the dataset will be replaced with NA values for easier processing of the datasets.
+```{r}
+training.url  <- 'https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv'
+test.url      <- 'https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv'
+download.file(training.url,"pml-training.csv", method ='curl')
+download.file(test.url,"pml-testing.csv", method ='curl')
+pmltrain <- read.csv("pml-training.csv", header = TRUE, na.strings = c("NA", ""))
+pmltest <- read.csv("pml-testing.csv", header = TRUE, na.strings = c("NA", ""))
+```
+
+Next, we will find the columns that do not have a full set of values and will remove those columns from the test and train dataset.  As a result, the datasets will have 60 columns in the data.
+
+```{r}
+pmltest <- pmltest[, (colSums(is.na(pmltrain)) == 0)]
+pmltrain <- pmltrain[, (colSums(is.na(pmltrain)) == 0)]
+```
+
+The first six columns will be removed as the data in the columns do not add anything to the analysis of thw weight training data.
+
+```{r}
+pmltrain <- pmltrain[,-c(1:6)]
+pmltest <- pmltest[,-c(1:6)]
+```
+
+The train dataset will be split into a training dataset (70% of the observations) and a testing dataset (30% of the observations). The splitting of the dataset is for cross validation purposes. We will use the set.seed function so that the train dataset will be split in the same matter if this model is reproduced at a later date.
+
+```{r}
+set.seed(22541)
+inTrain = createDataPartition(y = pmltrain$classe, p = 0.7, list = FALSE)
+training <- pmltrain[inTrain, ]
+testing <- pmltrain[-inTrain, ]
+```
+
+#### Principal Component Analysis
+The data next will undergo pre-processing using a principal component analysis. The last column ('classe') will be removed from pre-processing. Next, the 'predict' function will be applied to the pre-processed datasets.
+
+```{r}
+preProc <- preProcess(training[, -54], method = "pca", thresh = 0.9)
+trainPC <- predict(preProc, training[, -54])
+testPC <- predict(preProc, testing[, -54])
+```
+
+Next, the train function in the caret package will be used to develop a model using the random forest method on the training dataset. Random forest is the best regression model to use as the rpart(regression trees) model results in a 36.36% accuracy rate (see appendix A).  In addition, the cross validation method when applying the random forest routine in the 'trainControl()' parameter.  Also, without cross validation, the bootstrapping method takes a significantly longer and uses more computer memory.  Finally, the cross validation produces the same level of 'accuracy' as the bootstrapping method.
+
+```{r}
+
+modelFit <- train(training$classe ~ ., method = "rf", data = trainPC, trControl = trainControl(method = "cv", number = 4))
+```
+
+
+We now review the relative importance of the resulting principal components of the trained model, 'modelFit'.
+```{r}
+varImp(modelFit$finalModel, scale = TRUE)
+
+```
+
+As you look from the top to the bottom on the y-axis, this plot shows each of the principal components in order from most important to least important. The degree of importance is shown on the x-axis–increasing from left to right. Therefore, points high and to the right on this graph correspond to those principal components that are especially valuable in terms of being able to classify the observed training data.
+
+
+#### Cross Validation Testing
+The 'predict' function will be called again so that the trained model is applied to the cross validated test dataset. The results can be viewed in the 'confusionMatrix' function's output to see if the model is successful in predicting the values in the validation test set.
+
+```{r}
+predicttest <- predict(modelFit, testPC)
+confusion <- confusionMatrix(testing$classe, predicttest)
+confusion
+```
+
+The estimated out-of-sample error is 1.000 minus the accuracy of the model. The accuracy is listed in the confusionmatrix  above.  The accuracy is also listed in the caret package postResample function.
+
+```{r}
+accur <- postResample(testing$classe, predicttest)
+model_accuracy <- accur[[1]]
+model_accuracy
+out_of_sample_error <- 1 - model_accuracy
+out_of_sample_error
+```
+
+
+The estimated accuracy of the model is 97.6% and the estimated out-of-sample error based on our fitted model applied to the cross validation dataset is 2.4%.
+
+#### Predicted Results
+Next, apply the pre-processing to the pmltrain dataset, after removing 'problem_id' column from the dataset. Finally,the predict function is called to prdict the model against pmltest dataset.  Asthe last set the prediction results is displayed and this set will be uploaded in the twenty course submission website to compared the predicted results against the corrected results. 
+```{r}
+pmltest_pred <- predict(preProc, pmltest[, -54])
+pred_final <- predict(modelFit, pmltest_pred)
+```
+
+#### Appendix A
+Create a prediction model for the weight training dataset with the rpart(regression trees) model.
+```{r}
+modelFit_rpart <- train(training$classe ~ ., method = "rpart", data = trainPC, trControl = trainControl(method = "cv", number = 4))
+```
+
+Relative importance of the resulting principal components of the trained rpart model.
+```{r}
+varImp(modelFit_rpart$finalModel, scale = TRUE)
+```
+
+Predict classe data for the testing dataset with the rpart prediction model.
+```{r}
+predicttest_rpart <- predict(modelFit_rpart, testPC)
+confusion_rpart <- confusionMatrix(testing$classe, predicttest_rpart)
+```
+
+Confusion Matrix for rpart
+```{r}
+confusion_rpart
+```
+
+Accuracy and out of sample error for rpart model.
+```{r}
+accur_rpart <- postResample(testing$classe, predicttest_rpart)
+model_accuracy_rpart <- accur_rpart[[1]]
+model_accuracy_rpart
+out_of_sample_error_rpart <- 1 - model_accuracy_rpart
+out_of_sample_error_rpart
+```
+
